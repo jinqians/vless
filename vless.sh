@@ -2,13 +2,15 @@
 set -e
 
 # =========================================================
-# VLESS Reality 一键菜单脚本
+# VLESS Reality 一键菜单脚本（终极完整版）
 # Author: jinqians
 # =========================================================
 
 SCRIPT_REMOTE_URL="https://raw.githubusercontent.com/jinqians/vless/refs/heads/main/vless.sh"
+
 CONFIG_DIR="/usr/local/etc/xray"
 CONFIG_FILE="$CONFIG_DIR/config.json"
+META_FILE="$CONFIG_DIR/vless-meta.conf"
 VLESS_CMD="/usr/local/bin/vless"
 
 # root 校验
@@ -17,7 +19,7 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# ================= 工具函数 =================
+# ================= 基础工具函数 =================
 
 ensure_deps() {
   apt update -y
@@ -28,6 +30,8 @@ get_ips() {
   IPV4=$(curl -4 -s https://api.ipify.org || true)
   IPV6=$(curl -6 -s https://api64.ipify.org || true)
 }
+
+# ================= Reality Key 解析 =================
 
 parse_x25519() {
   KEY_OUTPUT=$(xray x25519 2>&1)
@@ -44,6 +48,8 @@ parse_x25519() {
 
   echo "$KEY_OUTPUT" > /tmp/x25519-raw.txt
 }
+
+# ================= 写入 Xray 配置 =================
 
 write_config() {
   mkdir -p "$CONFIG_DIR"
@@ -83,39 +89,27 @@ write_config() {
 EOF
 }
 
+# ================= 安装 vless 管理命令 =================
+
 install_vless_cmd() {
-  if [[ -f "$VLESS_CMD" ]]; then
-    return
-  fi
+  if [[ -f "$VLESS_CMD" ]]; then return; fi
 
   cat > "$VLESS_CMD" << 'EOFSCRIPT'
 #!/bin/bash
-
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-RESET='\033[0m'
-
 if [ "$(id -u)" != "0" ]; then
-    echo -e "${RED}请以 root 权限运行 vless${RESET}"
-    exit 1
+  echo "请以 root 运行 vless"
+  exit 1
 fi
-
-TMP_SCRIPT=$(mktemp)
-SCRIPT_URL="https://raw.githubusercontent.com/jinqians/vless/refs/heads/main/vless.sh"
-
-echo -e "${CYAN}正在获取最新版本的 VLESS Reality 管理脚本...${RESET}"
-if curl -fsSL "$SCRIPT_URL" -o "$TMP_SCRIPT"; then
-    bash "$TMP_SCRIPT"
-    rm -f "$TMP_SCRIPT"
-else
-    echo -e "${RED}下载脚本失败，请检查网络连接。${RESET}"
-    rm -f "$TMP_SCRIPT"
-    exit 1
-fi
+TMP=$(mktemp)
+curl -fsSL https://raw.githubusercontent.com/jinqians/vless/refs/heads/main/vless.sh -o "$TMP"
+bash "$TMP"
+rm -f "$TMP"
 EOFSCRIPT
 
   chmod +x "$VLESS_CMD"
 }
+
+# ================= 输出链接 =================
 
 output_links() {
   get_ips
@@ -125,18 +119,19 @@ output_links() {
     echo "IPv4 链接："
     echo "$V4"
     qrencode -t ANSIUTF8 "$V4"
+    echo
   fi
 
   if [[ -n "$IPV6" ]]; then
     V6="vless://${UUID}@[$IPV6]:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&pbk=${PUBLIC_KEY}&type=tcp#VLESS-Reality-IPv6"
-    echo
     echo "IPv6 链接："
     echo "$V6"
     qrencode -t ANSIUTF8 "$V6"
+    echo
   fi
 }
 
-# ================= 菜单功能 =================
+# ================= 安装动作 =================
 
 install_action() {
   ensure_deps
@@ -173,31 +168,78 @@ install_action() {
   systemctl enable xray
   systemctl restart xray
 
+  # ===== 保存 Reality 元信息（关键）=====
+  get_ips
+  cat > "$META_FILE" <<EOF
+UUID="$UUID"
+PUBLIC_KEY="$PUBLIC_KEY"
+PORT="$PORT"
+DEST="$DEST"
+SERVER_NAMES="$SERVER_NAMES_RAW"
+SERVER_NAME_FIRST="$SERVER_NAME_FIRST"
+IPV4="$IPV4"
+IPV6="$IPV6"
+INSTALL_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+EOF
+
   install_vless_cmd
 
   echo
   echo "=========== 安装完成 ==========="
   echo "UUID       : $UUID"
-  echo "PrivateKey : $PRIVATE_KEY"
   echo "PublicKey  : $PUBLIC_KEY"
   echo "端口       : $PORT"
   echo "dest       : $DEST"
   echo "serverNames: $SERVER_NAMES_RAW"
   echo
-  echo "🚀 后续管理请直接执行命令： vless"
+  echo "👉 后续管理请直接执行命令： vless"
   echo
 
   output_links
 
-  echo
-  echo "============================================"
   echo "✅ 安装完成，脚本已退出"
-  echo "👉 使用 vless 命令进入管理菜单"
-  echo "============================================"
-  echo
-
   exit 0
 }
+
+# ================= 查看配置 =================
+
+show_config_action() {
+  if [[ ! -f "$META_FILE" ]]; then
+    echo "❌ 未找到节点元信息文件：$META_FILE"
+    return
+  fi
+
+  source "$META_FILE"
+
+  echo
+  echo "=========== 当前 VLESS Reality 配置 ==========="
+  echo "安装时间 : $INSTALL_TIME"
+  echo "UUID     : $UUID"
+  echo "PublicKey: $PUBLIC_KEY"
+  echo "端口     : $PORT"
+  echo "dest     : $DEST"
+  echo "serverNames:"
+  echo "$SERVER_NAMES" | tr ',' '\n' | sed 's/^/  - /'
+  echo
+
+  get_ips
+
+  if [[ -n "$IPV4" ]]; then
+    echo "IPv4 完整链接："
+    echo "vless://${UUID}@${IPV4}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&pbk=${PUBLIC_KEY}&type=tcp"
+    echo
+  fi
+
+  if [[ -n "$IPV6" ]]; then
+    echo "IPv6 完整链接："
+    echo "vless://${UUID}@[$IPV6]:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&pbk=${PUBLIC_KEY}&type=tcp"
+    echo
+  fi
+
+  read -p "按 Enter 返回菜单..."
+}
+
+# ================= 其它菜单功能 =================
 
 update_action() {
   bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh) install
@@ -219,7 +261,7 @@ uninstall_action() {
 
   rm -rf /usr/local/etc/xray /etc/xray /usr/local/etc/xray-reality /etc/xray-reality
   rm -f /usr/local/bin/xray /usr/bin/xray /bin/xray
-  rm -f /usr/local/bin/vless
+  rm -f "$VLESS_CMD"
 
   systemctl daemon-reexec
   systemctl daemon-reload
@@ -230,63 +272,7 @@ uninstall_action() {
 status_action() {
   systemctl status xray --no-pager || true
   ss -lntp || true
-  [[ -f "$CONFIG_FILE" ]] && sed -n '1,200p' "$CONFIG_FILE"
 }
-
-show_config_action() {
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "❌ 未找到配置文件：$CONFIG_FILE"
-    return
-  fi
-
-  echo
-  echo "=========== 当前 VLESS Reality 配置 ==========="
-  echo "配置文件: $CONFIG_FILE"
-  echo
-
-  # 基本字段解析
-  PORT=$(grep -oP '"port"\s*:\s*\K[0-9]+' "$CONFIG_FILE" | head -n1)
-  UUID=$(grep -oP '"id"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
-  DEST=$(grep -oP '"dest"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
-  PRIVATE_KEY=$(grep -oP '"privateKey"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
-
-  SERVER_NAMES=$(grep -oP '"serverNames"\s*:\s*\[\K[^\]]+' "$CONFIG_FILE" | tr -d '"' | tr ',' '\n' | head -n5)
-  SERVER_NAME_FIRST=$(echo "$SERVER_NAMES" | head -n1)
-
-  # Reality publicKey 无法从配置反推，提示用户
-  echo "端口        : $PORT"
-  echo "UUID        : $UUID"
-  echo "dest        : $DEST"
-  echo "serverNames :"
-  echo "$SERVER_NAMES" | sed 's/^/  - /'
-  echo
-
-  # IP
-  get_ips
-
-  # PublicKey 提示
-  echo "⚠️ Reality PublicKey 无法从服务端配置反推"
-  echo "👉 请使用安装时输出的 PublicKey"
-  echo
-
-  # 输出链接（不含 pbk）
-  if [[ -n "$IPV4" ]]; then
-    echo "IPv4 示例链接（需手动补充 pbk）："
-    echo "vless://${UUID}@${IPV4}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&type=tcp"
-    echo
-  fi
-
-  if [[ -n "$IPV6" ]]; then
-    echo "IPv6 示例链接（需手动补充 pbk）："
-    echo "vless://${UUID}@[$IPV6]:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&type=tcp"
-    echo
-  fi
-
-  echo "=============================================="
-  echo
-  read -p "按 Enter 返回菜单..."
-}
-
 
 self_update() {
   curl -fsSL "$SCRIPT_REMOTE_URL" -o /tmp/vless-menu.sh
@@ -298,12 +284,9 @@ self_update() {
 # ================= 主菜单 =================
 
 while true; do
-  echo -e "\033[0;36m============================================\033[0m"
-  echo -e "\033[0;36m            vless 管理脚本\033[0m"
-  echo -e "\033[0;36m============================================\033[0m"
-  echo -e "\033[0;32m作者: jinqians\033[0m"
-  echo -e "\033[0;32m网站: https://jinqians.com\033[0m"
-  echo -e "\033[0;36m============================================\033[0m"
+  echo "============================================"
+  echo "           vless Reality 管理菜单"
+  echo "============================================"
   echo "1) 安装 VLESS Reality"
   echo "2) 更新 Xray"
   echo "3) 卸载 VLESS Reality"
