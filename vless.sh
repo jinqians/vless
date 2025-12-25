@@ -6,7 +6,7 @@ set -e
 # Author: jinqians
 # =========================================================
 
-SCRIPT_REMOTE_URL="https://raw.githubusercontent.com/jinqians/vless/refs/heads/main/vless"
+SCRIPT_REMOTE_URL="https://raw.githubusercontent.com/jinqians/vless/refs/heads/main/vless.sh"
 CONFIG_DIR="/usr/local/etc/xray"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 VLESS_CMD="/usr/local/bin/vless"
