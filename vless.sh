@@ -233,6 +233,61 @@ status_action() {
   [[ -f "$CONFIG_FILE" ]] && sed -n '1,200p' "$CONFIG_FILE"
 }
 
+show_config_action() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "❌ 未找到配置文件：$CONFIG_FILE"
+    return
+  fi
+
+  echo
+  echo "=========== 当前 VLESS Reality 配置 ==========="
+  echo "配置文件: $CONFIG_FILE"
+  echo
+
+  # 基本字段解析
+  PORT=$(grep -oP '"port"\s*:\s*\K[0-9]+' "$CONFIG_FILE" | head -n1)
+  UUID=$(grep -oP '"id"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
+  DEST=$(grep -oP '"dest"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
+  PRIVATE_KEY=$(grep -oP '"privateKey"\s*:\s*"\K[^"]+' "$CONFIG_FILE" | head -n1)
+
+  SERVER_NAMES=$(grep -oP '"serverNames"\s*:\s*\[\K[^\]]+' "$CONFIG_FILE" | tr -d '"' | tr ',' '\n' | head -n5)
+  SERVER_NAME_FIRST=$(echo "$SERVER_NAMES" | head -n1)
+
+  # Reality publicKey 无法从配置反推，提示用户
+  echo "端口        : $PORT"
+  echo "UUID        : $UUID"
+  echo "dest        : $DEST"
+  echo "serverNames :"
+  echo "$SERVER_NAMES" | sed 's/^/  - /'
+  echo
+
+  # IP
+  get_ips
+
+  # PublicKey 提示
+  echo "⚠️ Reality PublicKey 无法从服务端配置反推"
+  echo "👉 请使用安装时输出的 PublicKey"
+  echo
+
+  # 输出链接（不含 pbk）
+  if [[ -n "$IPV4" ]]; then
+    echo "IPv4 示例链接（需手动补充 pbk）："
+    echo "vless://${UUID}@${IPV4}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&type=tcp"
+    echo
+  fi
+
+  if [[ -n "$IPV6" ]]; then
+    echo "IPv6 示例链接（需手动补充 pbk）："
+    echo "vless://${UUID}@[$IPV6]:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SERVER_NAME_FIRST}&fp=chrome&type=tcp"
+    echo
+  fi
+
+  echo "=============================================="
+  echo
+  read -p "按 Enter 返回菜单..."
+}
+
+
 self_update() {
   curl -fsSL "$SCRIPT_REMOTE_URL" -o /tmp/vless-menu.sh
   chmod +x /tmp/vless-menu.sh
@@ -253,6 +308,7 @@ while true; do
   echo "2) 更新 Xray"
   echo "3) 卸载 VLESS Reality"
   echo "4) 查看运行状态"
+  echo "5) 查看当前配置"
   echo "0) 更新脚本"
   echo "q) 退出"
   read -p "请选择: " c
@@ -261,6 +317,7 @@ while true; do
     2) update_action ;;
     3) uninstall_action ;;
     4) status_action ;;
+    5) show_config_action ;;
     0) self_update ;;
     q|Q) exit 0 ;;
     *) echo "无效选项" ;;
